@@ -12,21 +12,6 @@
 - 根据原图像素与打印尺寸显示 DPI 清晰度提示
 - 通过浏览器打印功能导出 PDF
 
-## 本地预览
-
-这是纯静态项目。可以直接打开 `index.html`，或在目录中运行：
-
-```bash
-python3 -m http.server 4173
-```
-
-然后访问 <http://localhost:4173>。
-
-## 部署到 GitHub Pages
-
-1. 把本目录提交到一个 GitHub 仓库。
-2. 在仓库的 **Settings → Pages** 中选择 **Deploy from a branch**。
-3. 选择 `main` 分支和 `/ (root)` 目录，保存即可。
 
 ## 打印设置
 
