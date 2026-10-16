@@ -1,4 +1,5 @@
 const MM_PER_INCH = 25.4;
+const EXPORT_DPI = 300;
 const A4 = {
   portrait: { width: 210, height: 297 },
   landscape: { width: 297, height: 210 },
@@ -21,7 +22,14 @@ const elements = {
   gapInput: document.querySelector("#gapInput"),
   orientationSelect: document.querySelector("#orientationSelect"),
   clearButton: document.querySelector("#clearButton"),
+  exportButton: document.querySelector("#exportButton"),
+  exportDialog: document.querySelector("#exportDialog"),
+  closeExportButton: document.querySelector("#closeExportButton"),
+  saveImageButton: document.querySelector("#saveImageButton"),
+  savePdfButton: document.querySelector("#savePdfButton"),
+  confirmSaveButton: document.querySelector("#confirmSaveButton"),
   printButton: document.querySelector("#printButton"),
+  exportStatus: document.querySelector("#exportStatus"),
   pageCountLabel: document.querySelector("#pageCountLabel"),
   previewSummary: document.querySelector("#previewSummary"),
   pages: document.querySelector("#pages"),
@@ -29,6 +37,8 @@ const elements = {
 };
 
 let toastTimer;
+let exportRunning = false;
+let pendingExport = null;
 
 function showToast(message) {
   elements.toast.textContent = message;
@@ -85,6 +95,7 @@ function loadImageFile(file) {
           url,
           naturalWidth: image.naturalWidth,
           naturalHeight: image.naturalHeight,
+          image,
           mode: ratio >= 1 ? "width" : "height",
           cm: 6,
         },
@@ -248,6 +259,9 @@ function renderPages() {
     document.querySelector("#emptyUploadButton").addEventListener("click", () => elements.fileInput.click());
     elements.pageCountLabel.textContent = "0 页";
     elements.previewSummary.textContent = "添加照片后自动排版";
+    elements.exportButton.disabled = true;
+    elements.saveImageButton.disabled = true;
+    elements.savePdfButton.disabled = true;
     elements.printButton.disabled = true;
     return;
   }
@@ -276,7 +290,235 @@ function renderPages() {
   document.body.classList.toggle("print-landscape", state.orientation === "landscape");
   elements.pageCountLabel.textContent = `${pages.length} 页`;
   elements.previewSummary.textContent = `${state.photos.length} 张照片 · ${pages.length} 页 A4${oversizedCount ? ` · ${oversizedCount} 张尺寸过大` : ""}`;
+  elements.exportButton.disabled = oversizedCount > 0;
+  elements.saveImageButton.disabled = oversizedCount > 0;
+  elements.savePdfButton.disabled = oversizedCount > 0;
   elements.printButton.disabled = oversizedCount > 0;
+}
+
+function setExportBusy(isBusy, message = "") {
+  exportRunning = isBusy;
+  elements.exportDialog.setAttribute("aria-busy", String(isBusy));
+  elements.closeExportButton.disabled = isBusy;
+  elements.saveImageButton.disabled = isBusy;
+  elements.savePdfButton.disabled = isBusy;
+  elements.printButton.disabled = isBusy;
+  elements.confirmSaveButton.disabled = isBusy;
+  elements.exportStatus.textContent = message;
+
+  if (!isBusy) {
+    const hasOversizedPhoto = packPhotos().some((page) => page.oversized.length);
+    elements.saveImageButton.disabled = hasOversizedPhoto;
+    elements.savePdfButton.disabled = hasOversizedPhoto;
+    elements.printButton.disabled = hasOversizedPhoto;
+  }
+}
+
+function openExportDialog() {
+  pendingExport = null;
+  elements.confirmSaveButton.hidden = true;
+  elements.exportStatus.textContent = "";
+  if (typeof elements.exportDialog.showModal === "function") {
+    elements.exportDialog.showModal();
+  } else {
+    elements.exportDialog.setAttribute("open", "");
+  }
+}
+
+function closeExportDialog(force = false) {
+  if (exportRunning && !force) return;
+  if (typeof elements.exportDialog.close === "function") {
+    elements.exportDialog.close();
+  } else {
+    elements.exportDialog.removeAttribute("open");
+  }
+  pendingExport = null;
+  elements.confirmSaveButton.hidden = true;
+}
+
+function nextPaint() {
+  return new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+}
+
+function canvasToBlob(canvas, type = "image/png", quality) {
+  return new Promise((resolve, reject) => {
+    canvas.toBlob((blob) => {
+      if (blob) resolve(blob);
+      else reject(new Error("无法生成导出文件"));
+    }, type, quality);
+  });
+}
+
+function downloadBlob(blob, filename) {
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  link.rel = "noopener";
+  document.body.append(link);
+  link.click();
+  link.remove();
+  window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
+}
+
+function canShareFiles(files) {
+  if (!navigator.share || !navigator.canShare) return false;
+  try {
+    return navigator.canShare({ files });
+  } catch {
+    return false;
+  }
+}
+
+async function shareOrDownload(files, title) {
+  if (canShareFiles(files)) {
+    try {
+      await navigator.share({ files, title });
+      return "shared";
+    } catch (error) {
+      if (error?.name === "AbortError") return "cancelled";
+    }
+  }
+
+  files.forEach((file, index) => {
+    window.setTimeout(() => downloadBlob(file, file.name), index * 180);
+  });
+  return "downloaded";
+}
+
+async function renderPageCanvas(page) {
+  const paper = A4[state.orientation];
+  const scale = EXPORT_DPI / MM_PER_INCH;
+  const canvas = document.createElement("canvas");
+  canvas.width = Math.round(paper.width * scale);
+  canvas.height = Math.round(paper.height * scale);
+  const context = canvas.getContext("2d", { alpha: false });
+
+  context.fillStyle = "#ffffff";
+  context.fillRect(0, 0, canvas.width, canvas.height);
+  context.imageSmoothingEnabled = true;
+  context.imageSmoothingQuality = "high";
+
+  for (const { photo, size, x, y } of page.items) {
+    if (!photo.image.complete) await photo.image.decode();
+    context.drawImage(
+      photo.image,
+      Math.round(x * scale),
+      Math.round(y * scale),
+      Math.round(size.width * scale),
+      Math.round(size.height * scale),
+    );
+  }
+
+  return canvas;
+}
+
+async function saveAsImages() {
+  if (exportRunning) return;
+  const pages = packPhotos();
+  setExportBusy(true, `正在生成第 1 / ${pages.length} 页图片…`);
+
+  try {
+    const files = [];
+    for (let index = 0; index < pages.length; index += 1) {
+      elements.exportStatus.textContent = `正在生成第 ${index + 1} / ${pages.length} 页图片…`;
+      await nextPaint();
+      const canvas = await renderPageCanvas(pages[index]);
+      const blob = await canvasToBlob(canvas, "image/png");
+      files.push(new File([blob], `寸纸-A4-第${index + 1}页.png`, { type: "image/png" }));
+      canvas.width = 1;
+      canvas.height = 1;
+    }
+
+    setExportBusy(false, `${files.length} 张图片已生成，请点击下方按钮保存`);
+    pendingExport = {
+      files,
+      title: "寸纸 A4 照片排版",
+      sharedMessage: "已交给系统保存或分享",
+      downloadedMessage: `已下载 ${files.length} 张 A4 图片`,
+    };
+    elements.confirmSaveButton.hidden = false;
+    return;
+  } catch (error) {
+    console.error(error);
+    elements.exportStatus.textContent = "图片生成失败，请调整后重试";
+    showToast("图片生成失败，请减少单次照片数量后重试");
+  } finally {
+    if (exportRunning) setExportBusy(false, elements.exportStatus.textContent);
+  }
+}
+
+async function saveAsPdf() {
+  if (exportRunning) return;
+  const JsPdf = window.jspdf?.jsPDF;
+  if (!JsPdf) {
+    showToast("PDF 组件加载失败，请刷新页面后重试");
+    return;
+  }
+
+  const pages = packPhotos();
+  const paper = A4[state.orientation];
+  setExportBusy(true, `正在生成第 1 / ${pages.length} 页 PDF…`);
+
+  try {
+    const pdf = new JsPdf({
+      orientation: state.orientation,
+      unit: "mm",
+      format: "a4",
+      compress: true,
+    });
+
+    for (let index = 0; index < pages.length; index += 1) {
+      elements.exportStatus.textContent = `正在生成第 ${index + 1} / ${pages.length} 页 PDF…`;
+      await nextPaint();
+      const canvas = await renderPageCanvas(pages[index]);
+      if (index > 0) pdf.addPage("a4", state.orientation);
+      pdf.addImage(canvas, "JPEG", 0, 0, paper.width, paper.height, undefined, "SLOW");
+      canvas.width = 1;
+      canvas.height = 1;
+    }
+
+    const blob = pdf.output("blob");
+    const file = new File([blob], "寸纸-A4照片排版.pdf", { type: "application/pdf" });
+    setExportBusy(false, "PDF 已生成，请点击下方按钮保存");
+    pendingExport = {
+      files: [file],
+      title: "寸纸 A4 照片排版 PDF",
+      sharedMessage: "PDF 已交给系统保存或分享",
+      downloadedMessage: "PDF 已下载",
+    };
+    elements.confirmSaveButton.hidden = false;
+    return;
+  } catch (error) {
+    console.error(error);
+    elements.exportStatus.textContent = "PDF 生成失败，请调整后重试";
+    showToast("PDF 生成失败，请减少单次照片数量后重试");
+  } finally {
+    if (exportRunning) setExportBusy(false, elements.exportStatus.textContent);
+  }
+}
+
+async function deliverPendingExport() {
+  if (!pendingExport || exportRunning) return;
+  const currentExport = pendingExport;
+  setExportBusy(true, "正在打开系统保存选项…");
+
+  try {
+    const result = await shareOrDownload(currentExport.files, currentExport.title);
+    if (result === "shared") showToast(currentExport.sharedMessage);
+    if (result === "downloaded") showToast(currentExport.downloadedMessage);
+    if (result === "cancelled") {
+      showToast("已取消保存，可以再次点击保存");
+      elements.exportStatus.textContent = "文件仍已准备好，可以再次保存";
+      return;
+    }
+    closeExportDialog(true);
+  } catch (error) {
+    console.error(error);
+    showToast("无法打开保存选项，请重试");
+  } finally {
+    setExportBusy(false, elements.exportStatus.textContent);
+  }
 }
 
 function render() {
@@ -329,7 +571,19 @@ elements.photoList.addEventListener("change", (event) => {
 });
 
 elements.clearButton.addEventListener("click", clearPhotos);
+elements.exportButton.addEventListener("click", openExportDialog);
+elements.closeExportButton.addEventListener("click", closeExportDialog);
+elements.exportDialog.addEventListener("click", (event) => {
+  if (event.target === elements.exportDialog) closeExportDialog();
+});
+elements.exportDialog.addEventListener("cancel", (event) => {
+  if (exportRunning) event.preventDefault();
+});
+elements.saveImageButton.addEventListener("click", saveAsImages);
+elements.savePdfButton.addEventListener("click", saveAsPdf);
+elements.confirmSaveButton.addEventListener("click", deliverPendingExport);
 elements.printButton.addEventListener("click", () => {
+  closeExportDialog();
   showToast("打印设置请选择 100% 比例、无边距，并关闭页眉页脚");
   window.setTimeout(() => window.print(), 250);
 });

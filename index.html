@@ -26,8 +26,8 @@
         <span class="privacy-dot" aria-hidden="true"></span>
         照片只在本机处理，不会上传
       </div>
-      <button class="button button-primary print-button" id="printButton" type="button" disabled>
-        打印 / 导出 PDF
+      <button class="button button-primary export-button" id="exportButton" type="button" disabled>
+        保存 / 导出
       </button>
     </header>
 
@@ -109,8 +109,58 @@
       </section>
     </main>
 
+    <dialog class="export-dialog" id="exportDialog" aria-labelledby="exportDialogTitle">
+      <div class="export-dialog-card">
+        <div class="export-dialog-heading">
+          <div>
+            <p class="eyebrow">移动端友好</p>
+            <h2 id="exportDialogTitle">保存排版结果</h2>
+          </div>
+          <button class="dialog-close" id="closeExportButton" type="button" aria-label="关闭">×</button>
+        </div>
+
+        <div class="export-options">
+          <button class="export-option" id="saveImageButton" type="button">
+            <span class="export-option-icon" aria-hidden="true">图</span>
+            <span>
+              <strong>保存为图片</strong>
+              <small>每页一张 PNG · A4 300 DPI · 无损</small>
+            </span>
+            <span class="export-option-arrow" aria-hidden="true">›</span>
+          </button>
+
+          <button class="export-option" id="savePdfButton" type="button">
+            <span class="export-option-icon pdf" aria-hidden="true">PDF</span>
+            <span>
+              <strong>保存为 PDF</strong>
+              <small>多页合并 · A4 实际尺寸 · 适合打印</small>
+            </span>
+            <span class="export-option-arrow" aria-hidden="true">›</span>
+          </button>
+
+          <button class="export-option" id="printButton" type="button">
+            <span class="export-option-icon print" aria-hidden="true">印</span>
+            <span>
+              <strong>直接打印</strong>
+              <small>调用浏览器打印功能</small>
+            </span>
+            <span class="export-option-arrow" aria-hidden="true">›</span>
+          </button>
+        </div>
+
+        <p class="export-help">
+          文件生成后，再点一次“打开系统保存”。iPhone 可选择“存储到文件”或“存储图像”，安卓可选择相册、文件或其他应用。不支持时会自动下载。
+        </p>
+        <p class="export-status" id="exportStatus" role="status" aria-live="polite"></p>
+        <button class="button button-primary confirm-save-button" id="confirmSaveButton" type="button" hidden>
+          打开系统保存
+        </button>
+      </div>
+    </dialog>
+
     <div class="toast" id="toast" role="status" aria-live="polite"></div>
 
+    <script src="vendor/jspdf.umd.min.js"></script>
     <script src="app.js"></script>
   </body>
 </html>
