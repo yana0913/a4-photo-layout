@@ -25,6 +25,7 @@ const elements = {
   exportButton: document.querySelector("#exportButton"),
   exportDialog: document.querySelector("#exportDialog"),
   closeExportButton: document.querySelector("#closeExportButton"),
+  saveAlbumButton: document.querySelector("#saveAlbumButton"),
   saveImageButton: document.querySelector("#saveImageButton"),
   savePdfButton: document.querySelector("#savePdfButton"),
   confirmSaveButton: document.querySelector("#confirmSaveButton"),
@@ -260,6 +261,7 @@ function renderPages() {
     elements.pageCountLabel.textContent = "0 页";
     elements.previewSummary.textContent = "添加照片后自动排版";
     elements.exportButton.disabled = true;
+    elements.saveAlbumButton.disabled = true;
     elements.saveImageButton.disabled = true;
     elements.savePdfButton.disabled = true;
     elements.printButton.disabled = true;
@@ -291,6 +293,7 @@ function renderPages() {
   elements.pageCountLabel.textContent = `${pages.length} 页`;
   elements.previewSummary.textContent = `${state.photos.length} 张照片 · ${pages.length} 页 A4${oversizedCount ? ` · ${oversizedCount} 张尺寸过大` : ""}`;
   elements.exportButton.disabled = oversizedCount > 0;
+  elements.saveAlbumButton.disabled = oversizedCount > 0;
   elements.saveImageButton.disabled = oversizedCount > 0;
   elements.savePdfButton.disabled = oversizedCount > 0;
   elements.printButton.disabled = oversizedCount > 0;
@@ -300,6 +303,7 @@ function setExportBusy(isBusy, message = "") {
   exportRunning = isBusy;
   elements.exportDialog.setAttribute("aria-busy", String(isBusy));
   elements.closeExportButton.disabled = isBusy;
+  elements.saveAlbumButton.disabled = isBusy;
   elements.saveImageButton.disabled = isBusy;
   elements.savePdfButton.disabled = isBusy;
   elements.printButton.disabled = isBusy;
@@ -308,6 +312,7 @@ function setExportBusy(isBusy, message = "") {
 
   if (!isBusy) {
     const hasOversizedPhoto = packPhotos().some((page) => page.oversized.length);
+    elements.saveAlbumButton.disabled = hasOversizedPhoto;
     elements.saveImageButton.disabled = hasOversizedPhoto;
     elements.savePdfButton.disabled = hasOversizedPhoto;
     elements.printButton.disabled = hasOversizedPhoto;
@@ -317,6 +322,7 @@ function setExportBusy(isBusy, message = "") {
 function openExportDialog() {
   pendingExport = null;
   elements.confirmSaveButton.hidden = true;
+  elements.confirmSaveButton.textContent = "打开系统保存";
   elements.exportStatus.textContent = "";
   if (typeof elements.exportDialog.showModal === "function") {
     elements.exportDialog.showModal();
@@ -370,8 +376,8 @@ function canShareFiles(files) {
   }
 }
 
-async function shareOrDownload(files, title) {
-  if (canShareFiles(files)) {
+async function shareOrDownload(files, title, mode = "auto") {
+  if (mode !== "download" && canShareFiles(files)) {
     try {
       await navigator.share({ files, title });
       return "shared";
@@ -383,7 +389,7 @@ async function shareOrDownload(files, title) {
   files.forEach((file, index) => {
     window.setTimeout(() => downloadBlob(file, file.name), index * 180);
   });
-  return "downloaded";
+  return mode === "album" ? "album-fallback" : "downloaded";
 }
 
 async function renderPageCanvas(page) {
@@ -413,7 +419,7 @@ async function renderPageCanvas(page) {
   return canvas;
 }
 
-async function saveAsImages() {
+async function saveAsImages(destination = "download") {
   if (exportRunning) return;
   const pages = packPhotos();
   setExportBusy(true, `正在生成第 1 / ${pages.length} 页图片…`);
@@ -430,13 +436,22 @@ async function saveAsImages() {
       canvas.height = 1;
     }
 
-    setExportBusy(false, `${files.length} 张图片已生成，请点击下方按钮保存`);
+    const toAlbum = destination === "album";
+    setExportBusy(
+      false,
+      toAlbum
+        ? `${files.length} 张图片已生成，请点击下方按钮打开相册保存`
+        : `${files.length} 张图片已生成，请点击下方按钮下载`,
+    );
     pendingExport = {
       files,
       title: "寸纸 A4 照片排版",
-      sharedMessage: "已交给系统保存或分享",
+      mode: destination,
+      sharedMessage: "已打开系统面板，请选择“存储图像”或相册应用",
       downloadedMessage: `已下载 ${files.length} 张 A4 图片`,
+      fallbackMessage: "当前浏览器不能直接打开相册，PNG 已下载，可从文件中存入相册",
     };
+    elements.confirmSaveButton.textContent = toAlbum ? "打开相册保存" : "下载 PNG 文件";
     elements.confirmSaveButton.hidden = false;
     return;
   } catch (error) {
@@ -484,9 +499,11 @@ async function saveAsPdf() {
     pendingExport = {
       files: [file],
       title: "寸纸 A4 照片排版 PDF",
+      mode: "auto",
       sharedMessage: "PDF 已交给系统保存或分享",
       downloadedMessage: "PDF 已下载",
     };
+    elements.confirmSaveButton.textContent = "打开系统保存";
     elements.confirmSaveButton.hidden = false;
     return;
   } catch (error) {
@@ -504,9 +521,10 @@ async function deliverPendingExport() {
   setExportBusy(true, "正在打开系统保存选项…");
 
   try {
-    const result = await shareOrDownload(currentExport.files, currentExport.title);
+    const result = await shareOrDownload(currentExport.files, currentExport.title, currentExport.mode);
     if (result === "shared") showToast(currentExport.sharedMessage);
     if (result === "downloaded") showToast(currentExport.downloadedMessage);
+    if (result === "album-fallback") showToast(currentExport.fallbackMessage);
     if (result === "cancelled") {
       showToast("已取消保存，可以再次点击保存");
       elements.exportStatus.textContent = "文件仍已准备好，可以再次保存";
@@ -579,7 +597,8 @@ elements.exportDialog.addEventListener("click", (event) => {
 elements.exportDialog.addEventListener("cancel", (event) => {
   if (exportRunning) event.preventDefault();
 });
-elements.saveImageButton.addEventListener("click", saveAsImages);
+elements.saveAlbumButton.addEventListener("click", () => saveAsImages("album"));
+elements.saveImageButton.addEventListener("click", () => saveAsImages("download"));
 elements.savePdfButton.addEventListener("click", saveAsPdf);
 elements.confirmSaveButton.addEventListener("click", deliverPendingExport);
 elements.printButton.addEventListener("click", () => {

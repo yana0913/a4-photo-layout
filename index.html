@@ -120,11 +120,20 @@
         </div>
 
         <div class="export-options">
-          <button class="export-option" id="saveImageButton" type="button">
-            <span class="export-option-icon" aria-hidden="true">图</span>
+          <button class="export-option" id="saveAlbumButton" type="button">
+            <span class="export-option-icon album" aria-hidden="true">册</span>
             <span>
-              <strong>保存为图片</strong>
-              <small>每页一张 PNG · A4 300 DPI · 无损</small>
+              <strong>保存图片到相册</strong>
+              <small>推荐手机使用 · 打开系统相册保存面板</small>
+            </span>
+            <span class="export-option-arrow" aria-hidden="true">›</span>
+          </button>
+
+          <button class="export-option" id="saveImageButton" type="button">
+            <span class="export-option-icon" aria-hidden="true">下</span>
+            <span>
+              <strong>下载 PNG 文件</strong>
+              <small>每页一张 PNG · A4 300 DPI · 保存到文件</small>
             </span>
             <span class="export-option-arrow" aria-hidden="true">›</span>
           </button>
@@ -149,7 +158,7 @@
         </div>
 
         <p class="export-help">
-          文件生成后，再点一次“打开系统保存”。iPhone 可选择“存储到文件”或“存储图像”，安卓可选择相册、文件或其他应用。不支持时会自动下载。
+          文件生成后需要再确认一次。iPhone 在系统面板选择“存储图像”，安卓选择相册或照片应用。浏览器不支持相册入口时会自动下载 PNG。
         </p>
         <p class="export-status" id="exportStatus" role="status" aria-live="polite"></p>
         <button class="button button-primary confirm-save-button" id="confirmSaveButton" type="button" hidden>

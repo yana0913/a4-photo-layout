@@ -749,6 +749,11 @@ select:focus-visible,
   font-weight: 800;
 }
 
+.export-option-icon.album {
+  background: #fff3dd;
+  color: #a35b13;
+}
+
 .export-option-icon.pdf {
   background: #fff0f1;
   color: var(--danger);
